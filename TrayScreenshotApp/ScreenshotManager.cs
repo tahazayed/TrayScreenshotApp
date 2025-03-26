@@ -6,15 +6,6 @@ namespace TrayScreenshotApp
 {
     public class ScreenshotManager
     {
-        [DllImport("gdi32.dll")]
-        private static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest, IntPtr hdcSource, int xSrc, int ySrc, CopyPixelOperation rop);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetDC(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
@@ -32,9 +23,6 @@ namespace TrayScreenshotApp
             _logger = logger;
         }
 
-        /// <summary>
-        /// Captures the selected screenshot mode asynchronously.
-        /// </summary>
         public async Task TakeScreenShotAsync()
         {
             Interlocked.Increment(ref hotkeyCounter);
@@ -90,20 +78,12 @@ namespace TrayScreenshotApp
             _logger.LogDebug("Capturing active screen...");
 
             Screen activeScreen = Screen.PrimaryScreen;
-            Bitmap bitmap = new(activeScreen.Bounds.Width, activeScreen.Bounds.Height);
+            Rectangle bounds = activeScreen.Bounds;
+            Bitmap bitmap = new(bounds.Width, bounds.Height);
 
             using (Graphics g = Graphics.FromImage(bitmap))
             {
-                IntPtr desktopDC = GetDC(IntPtr.Zero);
-                IntPtr bitmapDC = g.GetHdc();
-
-                if (!BitBlt(bitmapDC, 0, 0, activeScreen.Bounds.Width, activeScreen.Bounds.Height, desktopDC, activeScreen.Bounds.X, activeScreen.Bounds.Y, CopyPixelOperation.SourceCopy))
-                {
-                    _logger.LogError("BitBlt operation failed for active screen.");
-                }
-
-                g.ReleaseHdc(bitmapDC);
-                ReleaseDC(IntPtr.Zero, desktopDC);
+                g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
             }
 
             return bitmap;
@@ -126,22 +106,12 @@ namespace TrayScreenshotApp
 
             int width = maxX - minX;
             int height = maxY - minY;
-
             _logger.LogDebug($"Virtual desktop dimensions: Width={width}, Height={height}");
 
             Bitmap bitmap = new(width, height);
             using (Graphics g = Graphics.FromImage(bitmap))
             {
-                IntPtr desktopDC = GetDC(IntPtr.Zero);
-                IntPtr bitmapDC = g.GetHdc();
-
-                if (!BitBlt(bitmapDC, 0, 0, width, height, desktopDC, minX, minY, CopyPixelOperation.SourceCopy))
-                {
-                    _logger.LogError("BitBlt operation failed for virtual desktop.");
-                }
-
-                g.ReleaseHdc(bitmapDC);
-                ReleaseDC(IntPtr.Zero, desktopDC);
+                g.CopyFromScreen(new Point(minX, minY), Point.Empty, new Size(width, height));
             }
 
             return bitmap;
@@ -173,16 +143,7 @@ namespace TrayScreenshotApp
             Bitmap bitmap = new(width, height);
             using (Graphics g = Graphics.FromImage(bitmap))
             {
-                IntPtr desktopDC = GetDC(IntPtr.Zero);
-                IntPtr bitmapDC = g.GetHdc();
-
-                if (!BitBlt(bitmapDC, 0, 0, width, height, desktopDC, rect.Left, rect.Top, CopyPixelOperation.SourceCopy))
-                {
-                    _logger.LogError("BitBlt operation failed for active window.");
-                }
-
-                g.ReleaseHdc(bitmapDC);
-                ReleaseDC(IntPtr.Zero, desktopDC);
+                g.CopyFromScreen(new Point(rect.Left, rect.Top), Point.Empty, new Size(width, height));
             }
 
             return bitmap;
@@ -199,6 +160,7 @@ namespace TrayScreenshotApp
             }
         }
 
+        [StructLayout(LayoutKind.Sequential)]
         private struct RECT
         {
             public int Left, Top, Right, Bottom;
