@@ -4,25 +4,33 @@ using System.Text.Json;
 
 namespace TrayScreenshotApp
 {
+    /// <summary>
+    /// Manages persistent application settings including hotkeys, logging, and startup configuration.
+    /// </summary>
     public class SettingsManager
     {
         private readonly string settingsFilePath = "settings.json";
         private const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string AppName = "TrayScreenshotApp";
 
-        public HotkeySettings Settings { get; private set; }
-        private readonly ILogger<SettingsManager> _logger;
-        private readonly Action<LogLevel> _logLevelUpdater; // ✅ Log level update callback
+        // Holds current in-memory application settings
+        public HotkeySettings Settings { get; private set; } = null!;
 
+        private readonly ILogger<SettingsManager> _logger;
+        private readonly Action<LogLevel> _logLevelUpdater;
+
+        /// <summary>
+        /// Constructs the SettingsManager and loads settings from disk.
+        /// </summary>
         public SettingsManager(ILogger<SettingsManager> logger, Action<LogLevel> logLevelUpdater)
         {
-            _logger = logger;
-            _logLevelUpdater = logLevelUpdater; // ✅ Store callback function
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logLevelUpdater = logLevelUpdater ?? throw new ArgumentNullException(nameof(logLevelUpdater));
             LoadSettings();
         }
 
         /// <summary>
-        /// Loads settings from settings.json or creates new defaults.
+        /// Loads settings from settings.json or initializes defaults if missing or corrupted.
         /// </summary>
         private void LoadSettings()
         {
@@ -31,7 +39,8 @@ namespace TrayScreenshotApp
                 try
                 {
                     string jsonString = File.ReadAllText(settingsFilePath);
-                    Settings = JsonSerializer.Deserialize<HotkeySettings>(jsonString) ?? GetDefaultSettings();
+                    var deserialized = JsonSerializer.Deserialize<HotkeySettings>(jsonString);
+                    Settings = deserialized ?? GetDefaultSettings();
                 }
                 catch (Exception ex)
                 {
@@ -45,21 +54,22 @@ namespace TrayScreenshotApp
                 Settings = GetDefaultSettings();
                 SaveSettings();
             }
-            // ✅ Update log level dynamically on load
+
+            // Sync current log level with logging infrastructure
             _logLevelUpdater(Settings.LogLevel);
         }
 
         /// <summary>
-        /// Provides default settings when no settings file exists.
+        /// Returns default app settings in case of first run or deserialization failure.
         /// </summary>
         private HotkeySettings GetDefaultSettings()
         {
             return new HotkeySettings
             {
                 Modifiers = 0x0003, // Ctrl + Alt
-                Key = (uint)Keys.S, // Default: 'S' key
+                Key = (uint)Keys.S, // Default key: 'S'
                 ScreenshotPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Screenshots"),
-                CaptureMode = CaptureMode.ActiveScreen, // Default to capturing active screen
+                CaptureMode = CaptureMode.ActiveScreen,
                 StartWithWindows = true,
                 EnableLogging = true,
                 LogLevel = LogLevel.Information
@@ -67,7 +77,7 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Saves the settings to settings.json and applies logging settings dynamically.
+        /// Saves current settings to settings.json and applies auto-start settings.
         /// </summary>
         public void SaveSettings()
         {
@@ -84,7 +94,7 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Updates the hotkey settings and saves them.
+        /// Updates the registered hotkey combination.
         /// </summary>
         public void UpdateHotkey(uint modifiers, uint key)
         {
@@ -95,14 +105,12 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Updates the screenshot save path and saves the settings.
+        /// Updates the directory where screenshots are saved.
         /// </summary>
         public void UpdateScreenshotPath(string newPath)
         {
             if (string.IsNullOrWhiteSpace(newPath))
-            {
                 return;
-            }
 
             _logger.LogDebug($"Screenshot path updated: {newPath}");
             Settings.ScreenshotPath = newPath;
@@ -110,7 +118,7 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Updates the screenshot capture mode and saves the settings.
+        /// Updates the screen capture mode (active window, desktop, etc).
         /// </summary>
         public void UpdateCaptureMode(CaptureMode mode)
         {
@@ -120,7 +128,7 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Enables or disables Windows startup for the application.
+        /// Enables or disables launching the app on Windows startup.
         /// </summary>
         public void UpdateAutoStart(bool enable)
         {
@@ -130,7 +138,7 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Enables or disables logging dynamically.
+        /// Enables or disables logging feature at runtime.
         /// </summary>
         public void UpdateLogging(bool enable)
         {
@@ -140,7 +148,7 @@ namespace TrayScreenshotApp
         }
 
         /// <summary>
-        /// Updates the log level dynamically.
+        /// Updates the log level used by Serilog and saves the setting.
         /// </summary>
         public void UpdateLogLevel(LogLevel level)
         {
@@ -148,18 +156,18 @@ namespace TrayScreenshotApp
             Settings.LogLevel = level;
             SaveSettings();
 
-            // ✅ Notify the program to update log level in Serilog
+            // Notify logging system to apply the change
             _logLevelUpdater(level);
         }
 
         /// <summary>
-        /// Ensures the application starts with Windows if enabled.
+        /// Registers or removes the app from Windows startup via registry.
         /// </summary>
         private void ApplyAutoStartSetting()
         {
             try
             {
-                using RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, true);
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, writable: true);
                 if (key == null)
                 {
                     _logger.LogError("Failed to access Windows registry for startup settings.");

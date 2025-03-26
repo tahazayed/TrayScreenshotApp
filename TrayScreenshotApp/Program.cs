@@ -3,11 +3,15 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Core;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace TrayScreenshotApp
 {
     internal static class Program
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+
         private static readonly LoggingLevelSwitch _logLevelSwitch = new();
 
         [STAThread]
@@ -21,6 +25,8 @@ namespace TrayScreenshotApp
                                retainedFileCountLimit: 7,
                                shared: true))
                            .CreateLogger();
+
+            SetProcessDPIAware();
 
             var services = new ServiceCollection()
                 .AddLogging(builder =>
