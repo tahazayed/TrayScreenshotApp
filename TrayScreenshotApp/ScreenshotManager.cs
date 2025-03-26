@@ -19,8 +19,8 @@ namespace TrayScreenshotApp
 
         public ScreenshotManager(SettingsManager settingsManager, ILogger<ScreenshotManager> logger)
         {
-            _settingsManager = settingsManager;
-            _logger = logger;
+            _settingsManager = settingsManager ?? throw new ArgumentNullException(nameof(settingsManager));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public async Task TakeScreenShotAsync()
@@ -30,7 +30,8 @@ namespace TrayScreenshotApp
 
             try
             {
-                CaptureMode captureMode = _settingsManager.Settings.CaptureMode;
+                var settings = _settingsManager.Settings ?? throw new InvalidOperationException("Settings cannot be null");
+                var captureMode = settings.CaptureMode;
                 _logger.LogDebug($"Capture mode: {captureMode}");
 
                 EnsureScreenshotFolderExists();
@@ -42,11 +43,11 @@ namespace TrayScreenshotApp
                     _ => await Task.Run(() => CaptureActiveScreen())
                 };
 
-                string filePath = Path.Combine(_settingsManager.Settings.ScreenshotPath, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
+                string screenshotPath = settings.ScreenshotPath ?? throw new InvalidOperationException("Screenshot path cannot be null");
+                string filePath = Path.Combine(screenshotPath, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
+
                 _logger.LogDebug($"Saving screenshot to: {filePath}");
-
                 await SaveScreenshotAsync(finalBitmap, filePath);
-
                 _logger.LogDebug($"Screenshot saved successfully: {filePath}");
 
                 finalBitmap.Dispose();
@@ -77,10 +78,15 @@ namespace TrayScreenshotApp
         {
             _logger.LogDebug("Capturing active screen...");
 
-            Screen activeScreen = Screen.PrimaryScreen;
+            Screen? activeScreen = Screen.PrimaryScreen;
+            if (activeScreen == null)
+            {
+                _logger.LogWarning("Primary screen not found. Returning empty bitmap.");
+                return new Bitmap(1, 1);
+            }
+
             Rectangle bounds = activeScreen.Bounds;
             Bitmap bitmap = new(bounds.Width, bounds.Height);
-
             using (Graphics g = Graphics.FromImage(bitmap))
             {
                 g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
@@ -93,10 +99,17 @@ namespace TrayScreenshotApp
         {
             _logger.LogDebug("Capturing virtual desktop...");
 
+            var screens = Screen.AllScreens;
+            if (screens == null || screens.Length == 0)
+            {
+                _logger.LogWarning("No screens found. Returning empty bitmap.");
+                return new Bitmap(1, 1);
+            }
+
             int minX = int.MaxValue, minY = int.MaxValue;
             int maxX = int.MinValue, maxY = int.MinValue;
 
-            foreach (var screen in Screen.AllScreens)
+            foreach (var screen in screens)
             {
                 minX = Math.Min(minX, screen.Bounds.X);
                 minY = Math.Min(minY, screen.Bounds.Y);
@@ -106,6 +119,7 @@ namespace TrayScreenshotApp
 
             int width = maxX - minX;
             int height = maxY - minY;
+
             _logger.LogDebug($"Virtual desktop dimensions: Width={width}, Height={height}");
 
             Bitmap bitmap = new(width, height);
@@ -128,7 +142,12 @@ namespace TrayScreenshotApp
                 return CaptureActiveScreen();
             }
 
-            GetWindowRect(hwnd, out RECT rect);
+            if (!GetWindowRect(hwnd, out RECT rect))
+            {
+                _logger.LogWarning("GetWindowRect failed. Returning empty bitmap.");
+                return new Bitmap(1, 1);
+            }
+
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
 
@@ -151,7 +170,12 @@ namespace TrayScreenshotApp
 
         private void EnsureScreenshotFolderExists()
         {
-            string screenshotFolder = _settingsManager.Settings.ScreenshotPath;
+            string? screenshotFolder = _settingsManager.Settings?.ScreenshotPath;
+
+            if (string.IsNullOrWhiteSpace(screenshotFolder))
+            {
+                throw new InvalidOperationException("Screenshot path is null or empty.");
+            }
 
             if (!Directory.Exists(screenshotFolder))
             {
