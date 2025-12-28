@@ -79,7 +79,7 @@ jobs:
       with:
         vs-prerelease: true
         msbuild-architecture: x64
-        vs-version: '[18.1,)'
+        vs-version: '18.1'
 
     # Execute all unit tests in the solution
     - name: Execute unit tests
