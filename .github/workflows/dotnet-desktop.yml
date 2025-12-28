@@ -17,6 +17,11 @@ jobs:
       RUNTIME: win-x64
       PUBLISH_DIR: artifacts/publish
 
+      # Pass secrets into the job environment (no `if:` expressions that reference `secrets.*`)
+      # NOTE: These are optional. If they are empty/missing, the signing step will be skipped.
+      PFX_B64: ${{ secrets.Base64_Encoded_Pfx }}
+      PFX_PASSWORD: ${{ secrets.Pfx_Key }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -46,38 +51,38 @@ jobs:
           --output "${{ env.PUBLISH_DIR }}"
 
       # Optional: Authenticode-sign the produced .exe using a PFX stored as GitHub secrets.
-      # This is NOT MSIX/ClickOnce signing; it signs the executable(s) in the publish folder.
-      - name: Decode signing certificate (PFX)
-        if: ${{ secrets.Base64_Encoded_Pfx != '' && secrets.Pfx_Key != '' }}
+      # This is NOT MSIX/ClickOnce signing. It signs the EXE(s) in the publish folder.
+      - name: Decode PFX and sign published EXE(s)
         shell: pwsh
         run: |
-          $pfxBytes = [Convert]::FromBase64String("${{ secrets.Base64_Encoded_Pfx }}")
-          $pfxPath  = Join-Path $env:RUNNER_TEMP "codesign.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
-          "PFX_PATH=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Sign published EXE(s)
-        if: ${{ env.PFX_PATH != '' }}
-        shell: pwsh
-        run: |
-          $exeFiles = Get-ChildItem -Path "${{ env.PUBLISH_DIR }}" -Filter *.exe -Recurse
-          if (-not $exeFiles) { throw "No .exe found under ${{ env.PUBLISH_DIR }} to sign." }
-
-          foreach ($f in $exeFiles) {
-            # Uses SignTool from the Windows SDK (typically present on GitHub-hosted Windows runners).
-            signtool sign `
-              /f "$env:PFX_PATH" `
-              /p "${{ secrets.Pfx_Key }}" `
-              /fd SHA256 `
-              /tr "http://timestamp.digicert.com" `
-              /td SHA256 `
-              "$($f.FullName)"
+          if ([string]::IsNullOrWhiteSpace($env:PFX_B64) -or [string]::IsNullOrWhiteSpace($env:PFX_PASSWORD)) {
+            Write-Host "Signing secrets not provided. Skipping Authenticode signing."
+            exit 0
           }
 
-      - name: Remove PFX from runner
-        if: ${{ env.PFX_PATH != '' }}
-        shell: pwsh
-        run: Remove-Item -Path "$env:PFX_PATH" -Force
+          $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          try {
+            $pfxBytes = [Convert]::FromBase64String($env:PFX_B64)
+            [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+
+            $exeFiles = Get-ChildItem -Path "${{ env.PUBLISH_DIR }}" -Filter *.exe -Recurse
+            if (-not $exeFiles) { throw "No .exe found under '${{ env.PUBLISH_DIR }}' to sign." }
+
+            foreach ($f in $exeFiles) {
+              signtool sign `
+                /f "$pfxPath" `
+                /p "$env:PFX_PASSWORD" `
+                /fd SHA256 `
+                /tr "http://timestamp.digicert.com" `
+                /td SHA256 `
+                "$($f.FullName)"
+            }
+
+            Write-Host "Signing complete."
+          }
+          finally {
+            if (Test-Path $pfxPath) { Remove-Item -Path $pfxPath -Force }
+          }
 
       - name: Upload published app
         uses: actions/upload-artifact@v6
