@@ -6,16 +6,17 @@ namespace TrayScreenshotApp
 {
     public class TrayIconManager : ApplicationContext
     {
-        private readonly NotifyIcon _trayIcon;
-        private readonly SettingsManager _settingsManager;
-        private readonly HotkeyManager _hotkeyManager;
-        private readonly ScreenshotManager _screenshotManager;
-        private ToolStripMenuItem autoStartMenuItem;
-        private ToolStripMenuItem loggingMenuItem;
-        private ToolStripMenuItem logLevelMenuItem;
-        private ToolStripMenuItem captureModeMenuItem;
-        private ToolStripMenuItem viewLogsMenuItem;
-        private ToolStripMenuItem viewScreenshotsMenuItem;
+        private readonly NotifyIcon _trayIcon = null!;
+        private readonly SettingsManager _settingsManager = null!;
+        private readonly HotkeyManager _hotkeyManager = null!;
+        private readonly ScreenshotManager _screenshotManager = null!;
+
+        private ToolStripMenuItem autoStartMenuItem = null!;
+        private ToolStripMenuItem loggingMenuItem = null!;
+        private ToolStripMenuItem logLevelMenuItem = null!;
+        private ToolStripMenuItem captureModeMenuItem = null!;
+        private ToolStripMenuItem viewLogsMenuItem = null!;
+        private ToolStripMenuItem viewScreenshotsMenuItem = null!;
 
         private readonly ILogger<TrayIconManager> _logger;
         private readonly string _appVersion;
@@ -78,7 +79,7 @@ namespace TrayScreenshotApp
             _ = contextMenu.Items.Add("Change Hotkey", null, (s, e) => ChangeHotkey());
             _ = contextMenu.Items.Add("Change Screenshot Path", null, (s, e) => ChangeScreenshotPath());
 
-            loggingMenuItem = new ToolStripMenuItem("Enable Logging", null, ToggleLogging)
+            loggingMenuItem = new ToolStripMenuItem("Enable Logging", null, ToggleLogging!)
             {
                 Checked = _settingsManager.Settings.EnableLogging
             };
@@ -96,7 +97,7 @@ namespace TrayScreenshotApp
             }
             _ = contextMenu.Items.Add(logLevelMenuItem);
 
-            autoStartMenuItem = new ToolStripMenuItem("Start with Windows", null, ToggleAutoStart)
+            autoStartMenuItem = new ToolStripMenuItem("Start with Windows", null, ToggleAutoStart!)
             {
                 Checked = _settingsManager.Settings.StartWithWindows
             };

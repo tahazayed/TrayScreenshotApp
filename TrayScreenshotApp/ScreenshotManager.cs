@@ -6,15 +6,6 @@ namespace TrayScreenshotApp
 {
     public class ScreenshotManager
     {
-        [DllImport("gdi32.dll")]
-        private static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest, IntPtr hdcSource, int xSrc, int ySrc, CopyPixelOperation rop);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetDC(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
@@ -28,13 +19,10 @@ namespace TrayScreenshotApp
 
         public ScreenshotManager(SettingsManager settingsManager, ILogger<ScreenshotManager> logger)
         {
-            _settingsManager = settingsManager;
-            _logger = logger;
+            _settingsManager = settingsManager ?? throw new ArgumentNullException(nameof(settingsManager));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        /// <summary>
-        /// Captures the selected screenshot mode asynchronously.
-        /// </summary>
         public async Task TakeScreenShotAsync()
         {
             Interlocked.Increment(ref hotkeyCounter);
@@ -42,7 +30,8 @@ namespace TrayScreenshotApp
 
             try
             {
-                CaptureMode captureMode = _settingsManager.Settings.CaptureMode;
+                var settings = _settingsManager.Settings ?? throw new InvalidOperationException("Settings cannot be null");
+                var captureMode = settings.CaptureMode;
                 _logger.LogDebug($"Capture mode: {captureMode}");
 
                 EnsureScreenshotFolderExists();
@@ -54,11 +43,11 @@ namespace TrayScreenshotApp
                     _ => await Task.Run(() => CaptureActiveScreen())
                 };
 
-                string filePath = Path.Combine(_settingsManager.Settings.ScreenshotPath, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
+                string screenshotPath = settings.ScreenshotPath ?? throw new InvalidOperationException("Screenshot path cannot be null");
+                string filePath = Path.Combine(screenshotPath, $"Screenshot_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}.png");
+
                 _logger.LogDebug($"Saving screenshot to: {filePath}");
-
                 await SaveScreenshotAsync(finalBitmap, filePath);
-
                 _logger.LogDebug($"Screenshot saved successfully: {filePath}");
 
                 finalBitmap.Dispose();
@@ -89,21 +78,18 @@ namespace TrayScreenshotApp
         {
             _logger.LogDebug("Capturing active screen...");
 
-            Screen activeScreen = Screen.PrimaryScreen;
-            Bitmap bitmap = new(activeScreen.Bounds.Width, activeScreen.Bounds.Height);
+            Screen? activeScreen = Screen.PrimaryScreen;
+            if (activeScreen == null)
+            {
+                _logger.LogWarning("Primary screen not found. Returning empty bitmap.");
+                return new Bitmap(1, 1);
+            }
 
+            Rectangle bounds = activeScreen.Bounds;
+            Bitmap bitmap = new(bounds.Width, bounds.Height);
             using (Graphics g = Graphics.FromImage(bitmap))
             {
-                IntPtr desktopDC = GetDC(IntPtr.Zero);
-                IntPtr bitmapDC = g.GetHdc();
-
-                if (!BitBlt(bitmapDC, 0, 0, activeScreen.Bounds.Width, activeScreen.Bounds.Height, desktopDC, activeScreen.Bounds.X, activeScreen.Bounds.Y, CopyPixelOperation.SourceCopy))
-                {
-                    _logger.LogError("BitBlt operation failed for active screen.");
-                }
-
-                g.ReleaseHdc(bitmapDC);
-                ReleaseDC(IntPtr.Zero, desktopDC);
+                g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
             }
 
             return bitmap;
@@ -113,10 +99,17 @@ namespace TrayScreenshotApp
         {
             _logger.LogDebug("Capturing virtual desktop...");
 
+            var screens = Screen.AllScreens;
+            if (screens == null || screens.Length == 0)
+            {
+                _logger.LogWarning("No screens found. Returning empty bitmap.");
+                return new Bitmap(1, 1);
+            }
+
             int minX = int.MaxValue, minY = int.MaxValue;
             int maxX = int.MinValue, maxY = int.MinValue;
 
-            foreach (var screen in Screen.AllScreens)
+            foreach (var screen in screens)
             {
                 minX = Math.Min(minX, screen.Bounds.X);
                 minY = Math.Min(minY, screen.Bounds.Y);
@@ -132,16 +125,7 @@ namespace TrayScreenshotApp
             Bitmap bitmap = new(width, height);
             using (Graphics g = Graphics.FromImage(bitmap))
             {
-                IntPtr desktopDC = GetDC(IntPtr.Zero);
-                IntPtr bitmapDC = g.GetHdc();
-
-                if (!BitBlt(bitmapDC, 0, 0, width, height, desktopDC, minX, minY, CopyPixelOperation.SourceCopy))
-                {
-                    _logger.LogError("BitBlt operation failed for virtual desktop.");
-                }
-
-                g.ReleaseHdc(bitmapDC);
-                ReleaseDC(IntPtr.Zero, desktopDC);
+                g.CopyFromScreen(new Point(minX, minY), Point.Empty, new Size(width, height));
             }
 
             return bitmap;
@@ -158,7 +142,12 @@ namespace TrayScreenshotApp
                 return CaptureActiveScreen();
             }
 
-            GetWindowRect(hwnd, out RECT rect);
+            if (!GetWindowRect(hwnd, out RECT rect))
+            {
+                _logger.LogWarning("GetWindowRect failed. Returning empty bitmap.");
+                return new Bitmap(1, 1);
+            }
+
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
 
@@ -173,16 +162,7 @@ namespace TrayScreenshotApp
             Bitmap bitmap = new(width, height);
             using (Graphics g = Graphics.FromImage(bitmap))
             {
-                IntPtr desktopDC = GetDC(IntPtr.Zero);
-                IntPtr bitmapDC = g.GetHdc();
-
-                if (!BitBlt(bitmapDC, 0, 0, width, height, desktopDC, rect.Left, rect.Top, CopyPixelOperation.SourceCopy))
-                {
-                    _logger.LogError("BitBlt operation failed for active window.");
-                }
-
-                g.ReleaseHdc(bitmapDC);
-                ReleaseDC(IntPtr.Zero, desktopDC);
+                g.CopyFromScreen(new Point(rect.Left, rect.Top), Point.Empty, new Size(width, height));
             }
 
             return bitmap;
@@ -190,7 +170,12 @@ namespace TrayScreenshotApp
 
         private void EnsureScreenshotFolderExists()
         {
-            string screenshotFolder = _settingsManager.Settings.ScreenshotPath;
+            string? screenshotFolder = _settingsManager.Settings?.ScreenshotPath;
+
+            if (string.IsNullOrWhiteSpace(screenshotFolder))
+            {
+                throw new InvalidOperationException("Screenshot path is null or empty.");
+            }
 
             if (!Directory.Exists(screenshotFolder))
             {
@@ -199,6 +184,7 @@ namespace TrayScreenshotApp
             }
         }
 
+        [StructLayout(LayoutKind.Sequential)]
         private struct RECT
         {
             public int Left, Top, Right, Bottom;
